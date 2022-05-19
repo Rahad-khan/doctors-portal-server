@@ -1,6 +1,7 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion } = require("mongodb");
@@ -9,6 +10,21 @@ const { MongoClient, ServerApiVersion } = require("mongodb");
 
 app.use(cors());
 app.use(express.json());
+
+const verifyJwt = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
 
 //MOngo
 
@@ -22,7 +38,112 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
-    console.log("object");
+    const serviceCollection = client
+      .db("doctors_portal")
+      .collection("services");
+    const bookingCollection = client
+      .db("doctors_portal")
+      .collection("bookings");
+    const userCollection = client.db("doctors_portal").collection("users");
+
+    app.get("/services", async (req, res) => {
+      const query = {};
+      const cursor = serviceCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get("/available", async (req, res) => {
+      const date = req.query.date;
+
+      const services = await serviceCollection.find().toArray();
+
+      const query = { date };
+
+      const bookings = await bookingCollection.find(query).toArray();
+
+      services.forEach((service) => {
+        const bookedService = bookings.filter(
+          (b) => b.treatment === service.name
+        );
+
+        const booked = bookedService.map((bs) => bs.slot);
+
+        const available = service.slots.filter((s) => !booked.includes(s));
+        service.slots = available;
+      });
+
+      res.send(services);
+    });
+    //check isadmin
+    app.get('/admin/:email',async (req, res) => {
+      const email = req.params.email;
+      const result = await userCollection.findOne({email});
+      const isAdmin = result.role === 'admin';
+      res.send({admin:isAdmin})
+    })
+    // All user load
+    app.get("/user", verifyJwt, async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+    // user update method
+    app.put("/user/admin/:email", verifyJwt, async (req, res) => {
+      const email = req.params.email;
+      const requester = req.decoded.email;
+      const reqUser = await userCollection.findOne({ email: requester });
+      if (reqUser.role === "admin") {
+        const filter = { email };
+        const updateDoc = {
+          $set: { role: "admin" },
+        };
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } else {
+        res.status(403).send({message: 'forbidden'})
+      }
+    });
+    app.put("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const filter = { email };
+      const options = { upsert: true };
+      const user = req.body;
+      const updateDoc = {
+        $set: user,
+      };
+      const result = await userCollection.updateOne(filter, updateDoc, options);
+      const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
+      res.send({ result, token });
+    });
+
+    app.get("/booking", verifyJwt, async (req, res) => {
+      const userId = req.query.email;
+      const decodedEmail = req.decoded.email;
+      if (userId === decodedEmail) {
+        const query = { userId };
+        const result = await bookingCollection.find(query).toArray();
+        return res.send(result);
+      } else {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+    });
+
+    app.post("/booking", async (req, res) => {
+      const booking = req.body;
+      const query = {
+        treatment: booking.treatment,
+        date: booking.date,
+        userId: booking.userId,
+      };
+      const exists = await bookingCollection.findOne(query);
+      if (exists) {
+        return res.send({ success: false, booking: exists });
+      }
+      const result = await bookingCollection.insertOne(booking);
+      res.send({ success: true, result });
+    });
   } finally {
     //   console.log(object);
   }
