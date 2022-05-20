@@ -17,7 +17,6 @@ const verifyJwt = (req, res, next) => {
     return res.status(401).send({ message: "Unauthorized access" });
   }
   const token = authHeader.split(" ")[1];
-  console.log(token);
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
     if (err) {
       return res.status(403).send({ message: "Forbidden access" });
@@ -49,6 +48,16 @@ async function run() {
       .db("doctors_portal")
       .collection("doctors");
     const userCollection = client.db("doctors_portal").collection("users");
+
+    const verifyAdmin =async (req,res,next) => {
+      const requester = req.decoded.email;
+      const requesterDetails = await userCollection.findOne({email: requester});
+      if (requesterDetails.role === "admin") {
+        next();
+      } else {
+        res.status(403).send({ message: "forbidden" });
+      }
+    }
 
     app.get("/services", async (req, res) => {
       const query = {};
@@ -92,20 +101,14 @@ async function run() {
       res.send(result);
     });
     // user update method
-    app.put("/user/admin/:email", verifyJwt, async (req, res) => {
+    app.put("/user/admin/:email", verifyJwt,verifyAdmin, async (req, res) => {
       const email = req.params.email;
-      const requester = req.decoded.email;
-      const reqUser = await userCollection.findOne({ email: requester });
-      if (reqUser.role === "admin") {
         const filter = { email };
         const updateDoc = {
           $set: { role: "admin" },
         };
         const result = await userCollection.updateOne(filter, updateDoc);
-        res.send(result);
-      } else {
-        res.status(403).send({message: 'forbidden'})
-      }
+        res.send(result)
     });
     app.put("/user/:email", async (req, res) => {
       const email = req.params.email;
@@ -149,7 +152,11 @@ async function run() {
       res.send({ success: true, result });
     });
 
-    app.post('/doctors',verifyJwt, async (req,res) => {
+    app.get('/doctors',verifyJwt,verifyAdmin, async (req,res) => {
+      const result = await doctorCollection.find().toArray();
+      res.send(result);
+    })
+    app.post('/doctors',verifyJwt,verifyAdmin, async (req,res) => {
       const docData = req.body;
       const result = await doctorCollection.insertOne(docData);
       res.send(result);
