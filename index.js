@@ -17,6 +17,7 @@ const verifyJwt = (req, res, next) => {
     return res.status(401).send({ message: "Unauthorized access" });
   }
   const token = authHeader.split(" ")[1];
+  console.log(token);
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
     if (err) {
       return res.status(403).send({ message: "Forbidden access" });
@@ -44,12 +45,15 @@ async function run() {
     const bookingCollection = client
       .db("doctors_portal")
       .collection("bookings");
+    const doctorCollection = client
+      .db("doctors_portal")
+      .collection("doctors");
     const userCollection = client.db("doctors_portal").collection("users");
 
     app.get("/services", async (req, res) => {
       const query = {};
-      const cursor = serviceCollection.find(query);
-      const result = await cursor.toArray();
+      const result = await serviceCollection
+        .find(query, { projection: { name: 1 }, sort: { name: 1 } }).toArray();
       res.send(result);
     });
 
@@ -113,7 +117,7 @@ async function run() {
       };
       const result = await userCollection.updateOne(filter, updateDoc, options);
       const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "1h",
+        expiresIn: "1d",
       });
       res.send({ result, token });
     });
@@ -144,6 +148,12 @@ async function run() {
       const result = await bookingCollection.insertOne(booking);
       res.send({ success: true, result });
     });
+
+    app.post('/doctors',verifyJwt, async (req,res) => {
+      const docData = req.body;
+      const result = await doctorCollection.insertOne(docData);
+      res.send(result);
+    })
   } finally {
     //   console.log(object);
   }
