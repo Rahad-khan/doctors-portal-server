@@ -4,7 +4,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // MiddleWare
 
@@ -137,6 +137,13 @@ async function run() {
       }
     });
 
+    app.get("/booking/:id", verifyJwt, async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: ObjectId(id) };
+      const result = await bookingCollection.findOne(filter);
+      res.send(result);
+    });
+
     app.post("/booking", async (req, res) => {
       const booking = req.body;
       const query = {
@@ -155,12 +162,18 @@ async function run() {
     app.get('/doctors',verifyJwt,verifyAdmin, async (req,res) => {
       const result = await doctorCollection.find().toArray();
       res.send(result);
-    })
+    });
     app.post('/doctors',verifyJwt,verifyAdmin, async (req,res) => {
       const docData = req.body;
       const result = await doctorCollection.insertOne(docData);
       res.send(result);
-    })
+    });
+    app.delete('/doctors',verifyJwt,verifyAdmin, async (req,res) => {
+      const id = req.query.id;
+      const filter = {_id: ObjectId(id)}
+      const result = await doctorCollection.deleteOne(filter);
+      res.send(result);
+    });
   } finally {
     //   console.log(object);
   }
